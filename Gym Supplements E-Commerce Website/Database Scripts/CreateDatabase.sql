@@ -109,7 +109,7 @@ CREATE TABLE `role` (
 -- =========================================
 -- BẢNG TÀI KHOẢN NGƯỜI DÙNG
 -- =========================================
-CREATE TABLE `user_account` (
+    CREATE TABLE `user_account` (
   `user_account_id` BINARY(16)   NOT NULL COMMENT 'Khóa chính của bảng tài khoản người dùng (UUID v4 lưu dạng BINARY(16))',
   `user_name`       VARCHAR(100) NOT NULL COMMENT 'Tên hiển thị của người dùng',
   `hashed_password` VARCHAR(255) NOT NULL COMMENT 'Mật khẩu đã được mã hóa',

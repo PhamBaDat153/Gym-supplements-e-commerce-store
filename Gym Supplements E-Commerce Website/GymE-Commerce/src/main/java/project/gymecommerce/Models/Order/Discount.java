@@ -5,6 +5,9 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /*
@@ -25,99 +28,175 @@ CREATE TABLE `discount` (
   COLLATE = utf8mb4_unicode_ci
   COMMENT = 'Lưu thông tin các chương trình khuyến mãi và mã giảm giá';
  */
-
 @Entity
-@Table(name = "discount")
+@Table(
+        name = "discount",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_discount_code", columnNames = {"discount_code"})
+        }
+)
 public class Discount {
 
     public enum DiscountType {
         PERCENT, FIXED_AMOUNT
     }
 
-    //Các thuộc tính của model: Discount
+    /**
+     * Khóa chính của thực thể Discount, lưu dưới dạng UUID (Binary(16) trong DB).
+     * - Ý nghĩa: định danh duy nhất cho một chương trình khuyến mãi.
+     * - Lưu ý: sử dụng GenerationType.UUID để Hibernate tự sinh UUID (UUID v4) khi persist.
+     */
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "discount_id", nullable = false)
     @JdbcTypeCode(SqlTypes.BINARY)
-    private UUID discount_id;
+    private UUID discountId;
 
+    /**
+     * Mã giảm giá hiển thị cho người dùng (ví dụ: SPRING2025).
+     * - Ý nghĩa: chuỗi dùng để áp mã khi checkout.
+     * - Lưu ý: phải là duy nhất trong bảng (unique); tối đa 50 ký tự.
+     */
     @Column(name = "discount_code", nullable = false, unique = true, length = 50)
-    private String discount_code;
+    private String discountCode;
 
-    @Enumerated
-    @Column(name = "discount_type", nullable = false)
+    /**
+     * Loại khuyến mãi xác định cách tính giá trị giảm:
+     * - PERCENT: giảm theo phần trăm của tổng đơn hàng hoặc mặt hàng.
+     * - FIXED_AMOUNT: giảm theo một số tiền cố định.
+     * - Lưu ý: lưu enum dưới dạng STRING để bảo toàn giá trị khi enum thay đổi thứ tự.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "discount_type", nullable = false, length = 20)
     private DiscountType discountType;
 
-    @Column(name = "description", nullable = false)
+    /**
+     * Mô tả ngắn về chương trình khuyến mãi.
+     * - Ý nghĩa: thông tin hiển thị cho đội marketing hoặc admin (không ảnh hưởng logic áp dụng).
+     * - Lưu ý: có thể null; dùng NVARCHAR để hỗ trợ Unicode.
+     */
+    @Column(name = "description", nullable = true)
     @JdbcTypeCode(SqlTypes.NVARCHAR)
     private String description;
 
+    /**
+     * Thời điểm bắt đầu khuyến mãi (ngày giờ hệ thống).
+     * - Ý nghĩa: chỉ các đơn hàng có thời gian >= startAt mới đủ điều kiện áp dụng.
+     * - Lưu ý: nếu null trước khi persist thì @PrePersist sẽ đặt mặc định là thời điểm hiện tại.
+     */
     @Column(name = "start_at", nullable = false)
-    private LocalDateTime start_at;
+    private LocalDateTime startAt;
 
+    /**
+     * Thời điểm kết thúc khuyến mãi (ngày giờ hệ thống).
+     * - Ý nghĩa: chương trình chỉ áp dụng cho đơn hàng có thời gian < endAt (tuỳ quy ước).
+     * - Lưu ý: phải đảm bảo endAt >= startAt; nếu null sẽ được đặt bằng startAt trong @PrePersist.
+     */
     @Column(name = "end_at", nullable = false)
-    private LocalDateTime end_at;
+    private LocalDateTime endAt;
 
-    @Column(name = "quantity", nullable = false)
+    /**
+     * Số lượng mã có thể sử dụng (NULL nghĩa không giới hạn).
+     * - Ý nghĩa: dùng để kiểm soát số lần phát/áp mã (inventory của coupon).
+     * - Lưu ý: giá trị âm nên được cấm ở tầng service/validate; trong DB có thể để NULL để biểu thị không giới hạn.
+     */
+    @Column(name = "quantity", nullable = true)
     private Integer quantity;
 
-    @Column(name = "is_available")
+    /**
+     * Cờ trạng thái cho biết mã hiện còn hiệu lực hay đã tắt.
+     * - Ý nghĩa: true = có thể sử dụng; false = đã vô hiệu.
+     * - Lưu ý: mặc định true; kiểu Boolean tiện cho mapping, lưu trong DB là TINYINT.
+     */
+    @Column(name = "is_available", nullable = false)
     @JdbcTypeCode(SqlTypes.TINYINT)
-    private Boolean is_available;
+    private Boolean isAvailable = true;
 
-    //Constructor
+    /**
+     * Bộ các đơn hàng đã áp dụng khuyến mãi này.
+     * - Ý nghĩa: quan hệ nhiều-nhiều giữa Discount và Order, mappedBy phía Order.
+     * - Lưu ý: fetch LAZY để tránh n+1; duy trì LinkedHashSet để giữ thứ tự chèn (nếu cần).
+     */
+    @ManyToMany(mappedBy = "discounts", fetch = FetchType.LAZY)
+    private Set<Order> orders = new LinkedHashSet<>();
+
+    // --- Constructors ---
     public Discount() {
     }
 
-    public Discount(String discount_code, DiscountType discountType, String description, Integer quantity, Integer endAfter) {
-        this.discount_code = discount_code;
+    /**
+     * Constructor tiện lợi.
+     *
+     * @param discountCode mã giảm giá
+     * @param discountType loại giảm giá
+     * @param description  mô tả (nullable)
+     * @param quantity     số lượng (nullable -> không giới hạn)
+     * @param endAfterMonths số tháng hiệu lực kể từ now (nếu <=0 thì không set endAt)
+     */
+    public Discount(String discountCode, DiscountType discountType, String description, Integer quantity, int endAfterMonths) {
+        this.discountCode = discountCode;
         this.discountType = discountType;
         this.description = description;
         this.quantity = quantity;
-        this.is_available = true;
-        this.start_at = LocalDateTime.now();
-        this.end_at = LocalDateTime.now().plusMonths(endAfter);
+        this.isAvailable = true;
+        this.startAt = LocalDateTime.now();
+        this.endAt = endAfterMonths > 0 ? LocalDateTime.now().plusMonths(endAfterMonths) : LocalDateTime.now();
     }
 
-    //Getter & Setter
-    public Boolean getIs_available() {
-        return is_available;
+    // --- Lifecycle callbacks để set mặc định nếu cần ---
+    @PrePersist
+    protected void prePersist() {
+        // Nếu các trường thời gian hoặc trạng thái chưa được đặt trước khi lưu lần đầu,
+        // phương thức này sẽ đảm bảo giá trị mặc định hợp lý được gán.
+        // - isAvailable: mặc định true nếu null.
+        // - startAt: đặt bằng thời điểm hiện tại nếu null.
+        // - endAt: nếu chưa được set, sẽ dùng startAt để tránh giá trị null trong DB.
+        if (this.isAvailable == null) this.isAvailable = true;
+        if (this.startAt == null) this.startAt = LocalDateTime.now();
+        if (this.endAt == null) this.endAt = this.startAt;
     }
 
-    public void setIs_available(Boolean is_available) {
-        this.is_available = is_available;
+    // --- Helper methods để duy trì quan hệ hai chiều với Order ---
+    /**
+     * Thêm một Order vào tập orders của Discount đồng thời đảm bảo mối quan hệ hai chiều được duy trì.
+     * - Hành vi: nếu order null thì không làm gì. Nếu order chưa chứa discount này thì sẽ thêm vào
+     *   collection discounts của order để hai phía nhất quán.
+     * - Lưu ý: không thực hiện persist/remove trên entity khác ở đây; chỉ duy trì collection tại cấp bộ nhớ.
+     */
+    public void addOrder(Order order) {
+        if (order == null) return;
+        orders.add(order);
+        if (!order.getDiscounts().contains(this)) {
+            order.getDiscounts().add(this);
+        }
     }
 
-    public Integer getQuantity() {
-        return quantity;
+    /**
+     * Loại bỏ một Order khỏi tập orders và đồng bộ trạng thái ở phía Order.
+     * - Hành vi: nếu order null thì không làm gì. Sau khi xóa khỏi collection của discount,
+     *   cũng sẽ xóa discount khỏi collection discounts của order để giữ nhất quán hai chiều.
+     */
+    public void removeOrder(Order order) {
+        if (order == null) return;
+        orders.remove(order);
+        order.getDiscounts().remove(this);
     }
 
-    public void setQuantity(Integer quantity) {
-        this.quantity = quantity;
+    // --- Getters & Setters ---
+    public UUID getDiscountId() {
+        return discountId;
     }
 
-    public LocalDateTime getEnd_at() {
-        return end_at;
+    public void setDiscountId(UUID discountId) {
+        this.discountId = discountId;
     }
 
-    public void setEnd_at(LocalDateTime end_at) {
-        this.end_at = end_at;
+    public String getDiscountCode() {
+        return discountCode;
     }
 
-    public LocalDateTime getStart_at() {
-        return start_at;
-    }
-
-    public void setStart_at(LocalDateTime start_at) {
-        this.start_at = start_at;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
+    public void setDiscountCode(String discountCode) {
+        this.discountCode = discountCode;
     }
 
     public DiscountType getDiscountType() {
@@ -128,34 +207,92 @@ public class Discount {
         this.discountType = discountType;
     }
 
-    public String getDiscount_code() {
-        return discount_code;
+    public String getDescription() {
+        return description;
     }
 
-    public void setDiscount_code(String discount_code) {
-        this.discount_code = discount_code;
+    public void setDescription(String description) {
+        this.description = description;
     }
 
-    public UUID getDiscount_id() {
-        return discount_id;
+    public LocalDateTime getStartAt() {
+        return startAt;
     }
 
-    public void setDiscount_id(UUID discount_id) {
-        this.discount_id = discount_id;
+    public void setStartAt(LocalDateTime startAt) {
+        this.startAt = startAt;
     }
 
-    //toString
+    public LocalDateTime getEndAt() {
+        return endAt;
+    }
+
+    public void setEndAt(LocalDateTime endAt) {
+        this.endAt = endAt;
+    }
+
+    public Integer getQuantity() {
+        return quantity;
+    }
+
+    public void setQuantity(Integer quantity) {
+        this.quantity = quantity;
+    }
+
+    public Boolean getIsAvailable() {
+        return isAvailable;
+    }
+
+    public void setIsAvailable(Boolean available) {
+        isAvailable = available;
+    }
+
+    public Set<Order> getOrders() {
+        return orders;
+    }
+
+    public void setOrders(Set<Order> orders) {
+        this.orders = orders;
+    }
+
+    // --- equals & hashCode ---
+    /**
+     * equals được định nghĩa dựa trên discountCode vì đây là thuộc tính duy nhất có ràng buộc unique
+     * và phù hợp để so sánh danh tính nghiệp vụ trong nhiều trường hợp (ví dụ: kiểm tra trùng mã).
+     * - Lưu ý: nếu discountCode có thể thay đổi sau khi entity được dùng trong các collection hash-based,
+     *   sẽ gây ra vấn đề; tốt nhất giữ discountCode bất biến sau khi tạo.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Discount)) return false;
+        Discount discount = (Discount) o;
+        return Objects.equals(discountCode, discount.discountCode);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(discountCode);
+    }
+
+    // --- toString ---
+    /**
+     * toString trả về chuỗi tóm tắt các trường quan trọng của Discount.
+     * - Mục đích: hỗ trợ debug/logging; không nên in thông tin nhạy cảm.
+     * - Lưu ý: tránh in toàn bộ collection để không gây recursive hoặc quá dài; ở đây chỉ in số lượng orders.
+     */
     @Override
     public String toString() {
         return "Discount{" +
-                "discount_id=" + discount_id +
-                ", discount_code='" + discount_code + '\'' +
+                "discountId=" + discountId +
+                ", discountCode='" + discountCode + '\'' +
                 ", discountType=" + discountType +
                 ", description='" + description + '\'' +
-                ", start_at=" + start_at +
-                ", end_at=" + end_at +
+                ", startAt=" + startAt +
+                ", endAt=" + endAt +
                 ", quantity=" + quantity +
-                ", is_available=" + is_available +
+                ", isAvailable=" + isAvailable +
+                ", orderCount=" + (orders == null ? 0 : orders.size()) +
                 '}';
     }
 }

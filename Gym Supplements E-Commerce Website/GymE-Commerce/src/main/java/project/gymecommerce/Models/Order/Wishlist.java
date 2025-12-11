@@ -3,8 +3,9 @@ package project.gymecommerce.Models.Order;
 import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
-import project.gymecommerce.Models.User.User_account;
+import project.gymecommerce.Models.User.UserAccount;
 
+import java.util.Objects;
 import java.util.UUID;
 
 /*
@@ -29,48 +30,79 @@ CREATE TABLE `wishlist` (
 @Table(name = "wishlist")
 public class Wishlist {
 
-    //các thuộc tính của model: Wishlist
+    /**
+     * Khóa chính wishlist_id, lưu dưới dạng UUID (Binary(16) trong DB).
+     * - Ý nghĩa: định danh duy nhất cho danh sách yêu thích của một user.
+     * - Lưu ý: Hibernate sinh UUID tự động khi persist nếu dùng GenerationType.UUID.
+     */
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "wishlist_id", nullable = false)
     @JdbcTypeCode(SqlTypes.BINARY)
-    private UUID wishlist_id;
+    private UUID wishlistId;
 
-    @OneToOne(cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REFRESH, CascadeType.DETACH}, optional = false, orphanRemoval = true)
-    @JoinColumn(name = "user_account_id", nullable = false)
-    private User_account user_account;
+    /**
+     * Chủ sở hữu của wishlist (UserAccount).
+     * - Ý nghĩa: liên kết một-một giữa UserAccount và Wishlist; mỗi user có tối đa một wishlist.
+     * - Lưu ý: @JoinColumn đặt unique = true để đảm bảo ràng buộc 1-1 ở tầng DB; không cascade REMOVE
+     *   để tránh vô tình xóa user khi xóa wishlist.
+     */
+    @OneToOne(fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REFRESH, CascadeType.DETACH},
+            optional = false)
+    @JoinColumn(name = "user_account_id", nullable = false, unique = true)
+    private UserAccount userAccount;
 
-
-    //Constructor
+    // --- Constructors ---
     public Wishlist() {
     }
 
-    public Wishlist(User_account user_account) {
-        this.user_account = user_account;
+    public Wishlist(UserAccount userAccount) {
+        this.userAccount = userAccount;
     }
 
-    //Getters & Setters
-    public User_account getUser_account() {
-        return user_account;
+    // --- Getters & Setters ---
+    public UUID getWishlistId() {
+        return wishlistId;
     }
 
-    public void setUser_account(User_account user_account) {
-        this.user_account = user_account;
+    public void setWishlistId(UUID wishlistId) {
+        this.wishlistId = wishlistId;
     }
 
-    public UUID getWishlist_id() {
-        return wishlist_id;
+    public UserAccount getUserAccount() {
+        return userAccount;
     }
 
-    public void setWishlist_id(UUID wishlist_id) {
-        this.wishlist_id = wishlist_id;
+    /**
+     * Setter userAccount.
+     * - Lưu ý: nếu hệ thống có quan hệ hai chiều (UserAccount chứa trường wishlist),
+     *   cần đồng bộ cả hai phía tại service hoặc cập nhật cả hai bên khi set ở đây để tránh inconsistency.
+     */
+    public void setUserAccount(UserAccount userAccount) {
+        this.userAccount = userAccount;
     }
 
-    //toString
+    // --- equals & hashCode ---
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Wishlist)) return false;
+        Wishlist wishlist = (Wishlist) o;
+        return wishlistId != null && Objects.equals(wishlistId, wishlist.wishlistId);
+    }
+
+    @Override
+    public int hashCode() {
+        return wishlistId != null ? Objects.hash(wishlistId) : System.identityHashCode(this);
+    }
+
+    // --- toString (an toàn, không in toàn bộ userAccount) ---
     @Override
     public String toString() {
         return "Wishlist{" +
-                "wishlist_id=" + wishlist_id +
-                ", user_account=" + user_account +
+                "wishlistId=" + wishlistId +
+                ", userAccountId=" + (userAccount == null ? null : userAccount.getUserAccountId()) +
                 '}';
     }
 }

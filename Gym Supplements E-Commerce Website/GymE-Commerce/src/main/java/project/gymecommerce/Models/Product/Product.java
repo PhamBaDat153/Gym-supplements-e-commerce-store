@@ -4,7 +4,10 @@ import jakarta.persistence.*;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,114 +31,203 @@ CREATE TABLE `product` (
 @Table(name = "product")
 public class Product {
 
-    //các thuộc tính cửa model: Product
+    /**
+     * Khóa chính product_id, lưu dưới dạng UUID (Binary(16) trong DB).
+     * - Ý nghĩa: định danh duy nhất cho một sản phẩm.
+     * - Lưu ý: Hibernate sinh UUID tự động khi persist nếu dùng GenerationType.UUID.
+     */
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "product_id", nullable = false)
     @JdbcTypeCode(SqlTypes.BINARY)
-    private UUID product_id;
+    private UUID productId;
 
-    @Column(name = "product_name", nullable = false)
+    /**
+     * Tên sản phẩm (Unicode).
+     * - Ý nghĩa: giá trị hiển thị cho UI và tìm kiếm.
+     * - Lưu ý: giới hạn 255 ký tự.
+     */
+    @Column(name = "product_name", nullable = false, length = 255)
     @JdbcTypeCode(SqlTypes.NVARCHAR)
-    private String product_name;
+    private String productName;
 
-    @Column(name = "description", nullable = false, length = 1000)
+    /**
+     * Mô tả chi tiết sản phẩm. Cho phép null.
+     * - Ý nghĩa: chứa thông tin dài về đặc tính, hướng dẫn sử dụng, v.v.
+     * - Lưu ý: dùng NVARCHAR để hỗ trợ Unicode; giới hạn chiều dài tuỳ implementation.
+     */
+    @Column(name = "description", nullable = true, length = 2000)
+    @JdbcTypeCode(SqlTypes.NVARCHAR)
     private String description;
 
+    /**
+     * Số lượng tồn kho hiện tại (INT UNSIGNED).
+     * - Ý nghĩa: dùng để kiểm soát việc hiển thị và cho phép đặt hàng.
+     * - Lưu ý: giá trị mặc định 0; setter/prePersist đảm bảo không null.
+     */
     @Column(name = "quantity", nullable = false)
-    private Integer quantity;
+    private Integer quantity = 0;
 
-    @Column(name = "price", nullable = false)
+    /**
+     * Giá niêm yết của sản phẩm.
+     * - Ý nghĩa: dùng cho hiển thị và làm cơ sở tính toán giá bán thực tế.
+     * - Lưu ý: sử dụng BigDecimal với precision/scale phù hợp để đảm bảo chính xác tài chính.
+     */
+    @Column(name = "price", nullable = false, precision = 15, scale = 2)
     @JdbcTypeCode(SqlTypes.DECIMAL)
-    private Double price;
+    private BigDecimal price = BigDecimal.ZERO;
 
+    /**
+     * Cờ hiển thị sản phẩm: true = đang bán, false = ẩn.
+     * - Ý nghĩa: điều khiển việc hiển thị trên storefront.
+     * - Lưu ý: mặc định true.
+     */
     @Column(name = "is_available", nullable = false)
     @JdbcTypeCode(SqlTypes.TINYINT)
-    private Boolean is_available = false;
+    private Boolean isAvailable = true;
 
-    @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true)
-    @JoinColumn(name = "product_id", nullable = false)
-    private Set<Product_image> product_images = new LinkedHashSet<>();
+    /**
+     * Ảnh liên quan tới sản phẩm.
+     * - Ý nghĩa: chứa các URL/metadata ảnh sản phẩm.
+     * - Lưu ý: mappedBy nếu ProductImage có trường product; cascade ALL + orphanRemoval để quản lý lifecycle ảnh.
+     */
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private Set<ProductImage> productImages = new LinkedHashSet<>();
 
-    @ManyToMany(mappedBy = "products", cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REFRESH, CascadeType.DETACH})
+    /**
+     * Các thương hiệu liên kết với sản phẩm (ManyToMany).
+     * - Ý nghĩa: biểu diễn mối quan hệ nhiều-nhiều giữa Product và Brand.
+     * - Lưu ý: mappedBy trỏ tới thuộc tính 'products' trong Brand.
+     */
+    @ManyToMany(mappedBy = "products", fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REFRESH, CascadeType.DETACH})
     private Set<Brand> brands = new LinkedHashSet<>();
 
-    @ManyToMany(mappedBy = "products", cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REFRESH, CascadeType.DETACH})
+    /**
+     * Các danh mục liên kết với sản phẩm (ManyToMany).
+     * - Ý nghĩa: cho phép phân loại sản phẩm theo nhiều danh mục.
+     * - Lưu ý: mappedBy trỏ tới thuộc tính 'products' trong Category.
+     */
+    @ManyToMany(mappedBy = "products", fetch = FetchType.LAZY,
+            cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REFRESH, CascadeType.DETACH})
     private Set<Category> categories = new LinkedHashSet<>();
 
-    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
-    private Set<Product_review> product_reviews = new LinkedHashSet<>();
+    /**
+     * Các đánh giá liên quan tới sản phẩm.
+     */
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private Set<ProductReview> productReviews = new LinkedHashSet<>();
 
-    //Constructor
+    /**
+     * Thời điểm tạo và cập nhật để hỗ trợ audit đơn giản.
+     * - Ý nghĩa: dùng cho báo cáo, đồng bộ cache, và xác định lịch sử thay đổi.
+     * - Lưu ý: được quản lý tự động qua @PrePersist và @PreUpdate.
+     */
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    // --- Constructors ---
     public Product() {
     }
 
-    public Product(Set<Product_image> product_images, Set<Brand> brands, Set<Category> categories, Double price, Integer quantity, String description, String product_name) {
-        this.product_images = product_images;
-        this.brands = brands;
-        this.categories = categories;
-        this.price = price;
-        this.quantity = quantity;
+    public Product(String productName,
+                   String description,
+                   Integer quantity,
+                   BigDecimal price) {
+        this.productName = productName;
         this.description = description;
-        this.product_name = product_name;
-        this.is_available = true;
+        this.quantity = quantity == null ? 0 : quantity;
+        this.price = price == null ? BigDecimal.ZERO : price;
+        this.isAvailable = true;
     }
 
-    //Getters & Setters
-    public Set<Product_review> getProduct_reviews() {
-        return product_reviews;
+    // --- Lifecycle callbacks ---
+    @PrePersist
+    protected void prePersist() {
+        LocalDateTime now = LocalDateTime.now();
+        if (this.createdAt == null) this.createdAt = now;
+        if (this.updatedAt == null) this.updatedAt = now;
+        if (this.quantity == null) this.quantity = 0;
+        if (this.price == null) this.price = BigDecimal.ZERO;
+        if (this.isAvailable == null) this.isAvailable = true;
     }
 
-    public void setProduct_reviews(Set<Product_review> product_reviews) {
-        this.product_reviews = product_reviews;
+    @PreUpdate
+    protected void preUpdate() {
+        this.updatedAt = LocalDateTime.now();
     }
 
-    public Set<Category> getCategories() {
-        return categories;
+    // --- Helper methods để duy trì quan hệ hai chiều ---
+    public void addProductImage(ProductImage image) {
+        if (image == null) return;
+        productImages.add(image);
+        image.setProduct(this);
     }
 
-    public void setCategories(Set<Category> categories) {
-        this.categories = categories;
+    public void removeProductImage(ProductImage image) {
+        if (image == null) return;
+        productImages.remove(image);
+        image.setProduct(null);
     }
 
-    public Set<Brand> getBrands() {
-        return brands;
+    public void addBrand(Brand brand) {
+        if (brand == null) return;
+        brands.add(brand);
+        if (!brand.getProducts().contains(this)) {
+            brand.getProducts().add(this);
+        }
     }
 
-    public void setBrands(Set<Brand> brands) {
-        this.brands = brands;
+    public void removeBrand(Brand brand) {
+        if (brand == null) return;
+        brands.remove(brand);
+        brand.getProducts().remove(this);
     }
 
-    public Set<Product_image> getProduct_images() {
-        return product_images;
+    public void addCategory(Category category) {
+        if (category == null) return;
+        categories.add(category);
+        if (!category.getProducts().contains(this)) {
+            category.getProducts().add(this);
+        }
     }
 
-    public void setProduct_images(Set<Product_image> product_images) {
-        this.product_images = product_images;
+    public void removeCategory(Category category) {
+        if (category == null) return;
+        categories.remove(category);
+        category.getProducts().remove(this);
     }
 
-    public Boolean getIs_available() {
-        return is_available;
+    public void addProductReview(ProductReview review) {
+        if (review == null) return;
+        productReviews.add(review);
+        review.setProduct(this);
     }
 
-    public void setIs_available(Boolean is_available) {
-        this.is_available = is_available;
+    public void removeProductReview(ProductReview review) {
+        if (review == null) return;
+        productReviews.remove(review);
+        review.setProduct(null);
     }
 
-    public Double getPrice() {
-        return price;
+    // --- Getters & Setters ---
+    public UUID getProductId() {
+        return productId;
     }
 
-    public void setPrice(Double price) {
-        this.price = price;
+    public void setProductId(UUID productId) {
+        this.productId = productId;
     }
 
-    public Integer getQuantity() {
-        return quantity;
+    public String getProductName() {
+        return productName;
     }
 
-    public void setQuantity(Integer quantity) {
-        this.quantity = quantity;
+    public void setProductName(String productName) {
+        this.productName = productName;
     }
 
     public String getDescription() {
@@ -146,36 +238,110 @@ public class Product {
         this.description = description;
     }
 
-    public String getProduct_name() {
-        return product_name;
+    public Integer getQuantity() {
+        return quantity;
     }
 
-    public void setProduct_name(String product_name) {
-        this.product_name = product_name;
+    public void setQuantity(Integer quantity) {
+        this.quantity = quantity == null ? 0 : quantity;
     }
 
-    public UUID getProduct_id() {
-        return product_id;
+    public BigDecimal getPrice() {
+        return price;
     }
 
-    public void setProduct_id(UUID product_id) {
-        this.product_id = product_id;
+    public void setPrice(BigDecimal price) {
+        this.price = price == null ? BigDecimal.ZERO : price;
     }
 
-    //toString
+    public Boolean getIsAvailable() {
+        return isAvailable;
+    }
+
+    public void setIsAvailable(Boolean available) {
+        isAvailable = available;
+    }
+
+    public Set<ProductImage> getProductImages() {
+        return productImages;
+    }
+
+    public void setProductImages(Set<ProductImage> productImages) {
+        this.productImages = productImages;
+    }
+
+    public Set<Brand> getBrands() {
+        return brands;
+    }
+
+    public void setBrands(Set<Brand> brands) {
+        this.brands = brands;
+    }
+
+    public Set<Category> getCategories() {
+        return categories;
+    }
+
+    public void setCategories(Set<Category> categories) {
+        this.categories = categories;
+    }
+
+    public Set<ProductReview> getProductReviews() {
+        return productReviews;
+    }
+
+    public void setProductReviews(Set<ProductReview> productReviews) {
+        this.productReviews = productReviews;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    // createdAt/updatedAt thường do JPA quản lý, cung cấp setter nếu cần
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public LocalDateTime getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(LocalDateTime updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    // --- equals & hashCode ---
+    /**
+     * equals/hashCode dựa trên productId nếu đã persist; nếu null thì fallback identity.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Product product = (Product) o;
+        return productId != null && Objects.equals(productId, product.productId);
+    }
+
+    @Override
+    public int hashCode() {
+        return productId != null ? Objects.hash(productId) : System.identityHashCode(this);
+    }
+
+    // --- toString (an toàn, không in collection chi tiết) ---
     @Override
     public String toString() {
         return "Product{" +
-                "product_id=" + product_id +
-                ", product_name='" + product_name + '\'' +
-                ", description='" + description + '\'' +
+                "productId=" + productId +
+                ", productName='" + productName + '\'' +
                 ", quantity=" + quantity +
                 ", price=" + price +
-                ", is_available=" + is_available +
-                ", product_images=" + product_images +
-                ", brands=" + brands +
-                ", categories=" + categories +
-                ", product_reviews=" + product_reviews +
+                ", isAvailable=" + isAvailable +
+                ", productImageCount=" + (productImages == null ? 0 : productImages.size()) +
+                ", brandCount=" + (brands == null ? 0 : brands.size()) +
+                ", categoryCount=" + (categories == null ? 0 : categories.size()) +
+                ", productReviewCount=" + (productReviews == null ? 0 : productReviews.size()) +
                 '}';
     }
 }
