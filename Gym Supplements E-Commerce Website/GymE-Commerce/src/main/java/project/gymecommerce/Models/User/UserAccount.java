@@ -54,7 +54,7 @@ public class UserAccount {
     /**
      * Tên hiển thị của người dùng.
      */
-    @Column(name = "user_name", nullable = false, length = 100)
+    @Column(name = "user_name", nullable = false, length = 100, unique = true)
     private String userName;
 
     /**

@@ -1,0 +1,178 @@
+<!-- register.html - Cập nhật để hiện popup thành công TRƯỚC KHI redirect sang login -->
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đăng Ký</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f8f9fa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .register-container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            max-width: 420px;
+            width: 100%;
+        }
+        h2 {
+            color: #0d6efd;
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .btn-primary {
+            background-color: #0d6efd;
+            border-color: #0d6efd;
+        }
+        .btn-primary:hover {
+            background-color: #0b5ed7;
+            border-color: #0a58ca;
+        }
+        .form-text {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+<div class="register-container">
+    <h2>Đăng Ký Tài Khoản</h2>
+
+    <form id="registerForm" th:action="@{/register}" th:object="${userAccount}" method="post">
+        <div class="mb-3">
+            <label for="userName" class="form-label">Tên Đăng Nhập</label>
+            <input type="text" class="form-control" id="userName" th:field="*{userName}"
+                   pattern="[a-z0-9._-]{3,20}" required>
+            <div th:if="${#fields.hasErrors('userName')}" th:errors="*{userName}" class="form-text"></div>
+        </div>
+
+        <div class="mb-3">
+            <label for="phoneNumber" class="form-label">Số Điện Thoại</label>
+            <input type="tel" class="form-control" id="phoneNumber" th:field="*{phoneNumber}"
+                   pattern="[0-9]{10,11}" required>
+            <div th:if="${#fields.hasErrors('phoneNumber')}" th:errors="*{phoneNumber}" class="form-text"></div>
+        </div>
+
+        <div class="mb-3">
+            <label for="email" class="form-label">Email</label>
+            <input type="email" class="form-control" id="email" th:field="*{email}" required>
+            <div th:if="${#fields.hasErrors('email')}" th:errors="*{email}" class="form-text"></div>
+        </div>
+
+        <div class="mb-3">
+            <label for="hashedPassword" class="form-label">Mật Khẩu</label>
+            <input type="password" class="form-control" id="hashedPassword" th:field="*{hashedPassword}" required minlength="6">
+            <div th:if="${#fields.hasErrors('hashedPassword')}" th:errors="*{hashedPassword}" class="form-text"></div>
+        </div>
+
+        <div class="mb-3">
+            <label for="confirmPassword" class="form-label">Xác Nhận Mật Khẩu</label>
+            <input type="password" class="form-control" id="confirmPassword" name="confirmPassword" required minlength="6">
+            <div id="passwordMismatch" class="form-text" style="display: none;">Mật khẩu xác nhận không khớp!</div>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100">Đăng Ký</button>
+    </form>
+
+    <p class="text-center mt-3">Đã có tài khoản? <a th:href="@{/login}">Đăng Nhập</a></p>
+</div>
+
+<!-- Modal Popup Thành Công -->
+<div class="modal fade" id="successModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Thành công!</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <i class="bi bi-check-circle-fill text-success" style="font-size: 4rem;"></i>
+                <p class="mt-3 fs-5">Đăng ký tài khoản thành công!</p>
+                <p>Bạn sẽ được chuyển đến trang đăng nhập trong giây lát...</p>
+            </div>
+            <div class="modal-footer justify-content-center">
+                <button type="button" class="btn btn-success" id="goToLoginBtn">Đi đến Đăng Nhập ngay</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Popup Lỗi (giữ nguyên cho các trường hợp lỗi) -->
+<div class="modal fade" id="errorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">Lỗi</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="errorMessage">
+                <!-- Nội dung lỗi sẽ được chèn bằng JS -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap Icons (cho icon check) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script th:inline="javascript">
+    /*<![CDATA[*/
+
+    // Kiểm tra xác nhận mật khẩu
+    document.getElementById('registerForm').addEventListener('submit', function(e) {
+        const password = document.getElementById('hashedPassword').value;
+        const confirmPassword = document.getElementById('confirmPassword').value;
+        const mismatch = document.getElementById('passwordMismatch');
+
+        if (password !== confirmPassword) {
+            mismatch.style.display = 'block';
+            e.preventDefault();
+        } else {
+            mismatch.style.display = 'none';
+        }
+    });
+
+    // Kiểm tra tham số URL để hiển thị popup
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    const message = urlParams.get('message');
+
+    if (status === 'success') {
+        // Hiện popup thành công
+        const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+        successModal.show();
+
+        // Tự động chuyển hướng sau 3 giây
+        setTimeout(() => {
+            window.location.href = '/login';
+        }, 3000);
+
+        // Nút "Đi đến Đăng Nhập ngay"
+        document.getElementById('goToLoginBtn').addEventListener('click', () => {
+            window.location.href = '/login';
+        });
+
+    } else if (status === 'error' && message) {
+        // Hiện popup lỗi
+        const errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
+        document.getElementById('errorMessage').textContent = message;
+        errorModal.show();
+    }
+
+    /*]]>*/
+</script>
+</body>
+</html>
